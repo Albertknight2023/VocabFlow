@@ -1,0 +1,104 @@
+/* Basic animated characters styling */
+.animated-characters{
+  position:relative;
+  width:420px;
+  height:260px;
+  margin:0 auto;
+}
+.char{
+  width:96px;
+  height:136px;
+  border-radius:16px;
+  position:absolute;
+  bottom:0;
+  transition:transform 0.28s cubic-bezier(.2,.9,.3,1), box-shadow 0.18s ease;
+  box-shadow:0 6px 18px rgba(0,0,0,0.12);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--char-bg, #ddd);
+  transform: rotate(0deg) skewY(var(--tilt, 0deg));
+}
+.char-purple{ left:92px; width:126px; height:208px; z-index:1; border-radius:12px; }
+.char-black{ left:208px; width:88px; height:142px; z-index:3; border-radius:10px; }
+.char-orange{ left:54px; width:168px; height:118px; z-index:4; border-radius:84px 84px 10px 10px; }
+.char-yellow{ left:272px; width:118px; height:134px; z-index:2; border-radius:56px 56px 10px 10px; }
+
+.char.error{ filter: hue-rotate(-20deg) saturate(0.8); }
+.char.sunglasses::before{
+  content:'';
+  position:absolute;
+  left:8px;
+  right:8px;
+  top:20px;
+  height:18px;
+  background:rgba(0,0,0,0.12);
+  border-radius:6px;
+  transform:translateY(-4px) rotate(-8deg);
+  pointer-events:none;
+}
+.eye{
+  width:var(--eye-w, 22px);
+  height:var(--eye-h, 18px);
+  background:rgba(255,255,255,0.95);
+  border-radius:999px;
+  position:absolute;
+  top:var(--eye-top, 24px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+}
+.eye.left{ left:var(--eye-side, 14px) }
+.eye.right{ right:var(--eye-side, 14px) }
+.pupil{
+  width:var(--pupil-size, 7px);
+  height:var(--pupil-size, 7px);
+  background:#111;
+  border-radius:50%;
+  transition:transform 0.08s linear, width 0.06s linear, height 0.06s linear;
+  transform: translate(var(--pupil-x, 0), var(--pupil-y, 0));
+}
+.char.look-left .pupil{
+  transform: translate(calc(var(--pupil-x, 0px) - 5px), var(--pupil-y, 0));
+}
+.mouth{
+  position:absolute;
+  bottom:14px;
+  left:50%;
+  transform:translateX(-50%);
+  width:36px;
+  height:8px;
+  background:rgba(0,0,0,0.2);
+  border-radius:8px;
+}
+
+/* per-character eye spacing to avoid overlap and mimic reference proportions */
+#c-purple{ --eye-w: 24px; --eye-h: 20px; --eye-top: 34px; --eye-side: 20px; --pupil-size: 8px; }
+#c-black{ --eye-w: 22px; --eye-h: 18px; --eye-top: 26px; --eye-side: 14px; --pupil-size: 8px; }
+#c-orange{ --eye-w: 22px; --eye-h: 18px; --eye-top: 30px; --eye-side: 28px; --pupil-size: 7px; }
+#c-yellow{ --eye-w: 22px; --eye-h: 18px; --eye-top: 28px; --eye-side: 18px; --pupil-size: 7px; }
+
+#c-orange .mouth{ bottom:20px; width:20px; height:10px; border-radius:0 0 10px 10px; background:rgba(0,0,0,0.6); }
+#c-yellow .mouth{ width:48px; height:4px; bottom:18px; border-radius:3px; }
+#c-black .mouth{ opacity:0.9; width:34px; height:7px; }
+.mouth.peek{
+  height:12px;
+  border-radius:6px;
+  background:rgba(255,255,255,0.6);
+}
+
+.char.blink .pupil{ height:2px; width:16px; border-radius:6px; transform: translate(var(--pupil-x,0), var(--pupil-y,0)) scaleY(0.12); background:#111 }
+.char.blink.look-left .pupil{ transform: translate(calc(var(--pupil-x,0px) - 5px), var(--pupil-y,0)) scaleY(0.12); }
+
+/* error shake */
+@keyframes shake { 0% { transform: translateX(0) } 20%{ transform: translateX(-6px)} 60%{transform:translateX(6px)} 100%{transform:translateX(0)} }
+.char.error{ animation: shake 420ms ease-in-out }
+
+/* typing subtle bob */
+.char.typing{ transform: translateY(-3px) }
+
+/* small responsive adjustments */
+@media (min-width: 768px){
+  .animated-characters{ width:460px; height:280px }
+}
