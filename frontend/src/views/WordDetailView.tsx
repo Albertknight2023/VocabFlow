@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { getWordbookApi } from "../api/wordbooks";
 import { getWordsByWordbookApi } from "../api/words";
 import { Button } from "../components/ui/Button";
+import { PageShell, PageShellHeader, PageShellContent } from "../components/ui/PageShell";
+import { Card, CardBody } from "../components/ui/Card";
+import { Display, H4, Body, BodySm } from "../components/ui/Typography";
 
 interface Wordbook {
   id: number;
@@ -31,7 +34,6 @@ function WordDetailView() {
 
   useEffect(() => {
     if (!parsedBookId || !parsedWordId) return;
-
     const load = async () => {
       try {
         const [bookRes, wordsRes] = await Promise.all([
@@ -39,16 +41,12 @@ function WordDetailView() {
           getWordsByWordbookApi(parsedBookId),
         ]);
         setBook(bookRes.data);
-
-        const matched = (wordsRes.data as Word[]).find(
-          (item) => item.id === parsedWordId,
-        );
+        const matched = (wordsRes.data as Word[]).find((item) => item.id === parsedWordId);
         if (!matched) {
           toast.error("未找到该单词");
           navigate(`/wordbooks/${parsedBookId}`);
           return;
         }
-
         setWord(matched);
       } catch {
         toast.error("加载单词详情失败");
@@ -56,88 +54,71 @@ function WordDetailView() {
         setLoading(false);
       }
     };
-
     load();
   }, [navigate, parsedBookId, parsedWordId]);
 
   if (!parsedBookId || !parsedWordId) {
-    return <div className="text-sm text-zinc-500">单词参数无效</div>;
+    return (
+      <PageShell>
+        <PageShellContent>
+          <BodySm>单词参数无效</BodySm>
+        </PageShellContent>
+      </PageShell>
+    );
   }
 
   return (
-    <div className="space-y-5 py-2">
-      <section className="rounded-2xl border border-zinc-200 bg-white/95 p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs tracking-[0.25em] text-zinc-400">
-              WORD DETAIL
-            </p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl">
-              {loading ? "加载中..." : word?.text || "单词详情"}
-            </h1>
-            <p className="mt-2 text-sm text-zinc-500">
-              {book?.name || "单词本"}
-            </p>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => navigate(`/wordbooks/${parsedBookId}`)}
-          >
+    <PageShell>
+      <PageShellHeader
+        title={loading ? "加载中..." : word?.text || "单词详情"}
+        subtitle={book?.name || "单词本"}
+        backTo={`/wordbooks/${parsedBookId}`}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => navigate(`/wordbooks/${parsedBookId}`)}>
             返回单词列表
           </Button>
+        }
+      />
+
+      <PageShellContent>
+        <div className="max-w-2xl mx-auto">
+          {word ? (
+            <div className="space-y-4">
+              <Card>
+                <CardBody>
+                  <Display>{word.text}</Display>
+                  {word.phonetic && <BodySm className="mt-1">{word.phonetic}</BodySm>}
+                </CardBody>
+              </Card>
+
+              <Card>
+                <CardBody>
+                  <H4>释义</H4>
+                  <Body className="mt-2 !text-foreground">{word.meaning}</Body>
+                </CardBody>
+              </Card>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Card>
+                  <CardBody>
+                    <H4>词性</H4>
+                    <Body className="mt-2 !text-foreground">{word.part_of_speech || "未设置"}</Body>
+                  </CardBody>
+                </Card>
+                <Card>
+                  <CardBody>
+                    <H4>英文释义</H4>
+                    <Body className="mt-2 !text-foreground">{word.example || "未设置"}</Body>
+                  </CardBody>
+                </Card>
+              </div>
+            </div>
+          ) : (
+            <BodySm>暂无详情</BodySm>
+          )}
         </div>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-        {word ? (
-          <div className="space-y-4">
-            <div>
-              <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                单词
-              </div>
-              <div className="mt-1 text-3xl font-bold text-zinc-900">
-                {word.text}
-              </div>
-              {word.phonetic ? (
-                <div className="mt-1 text-sm text-zinc-500">
-                  {word.phonetic}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                释义
-              </div>
-              <div className="mt-2 text-base leading-7 text-zinc-800">
-                {word.meaning}
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-zinc-200 p-4">
-                <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  词性
-                </div>
-                <div className="mt-2 text-zinc-800">
-                  {word.part_of_speech || "未设置"}
-                </div>
-              </div>
-              <div className="rounded-xl border border-zinc-200 p-4">
-                <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  英文释义
-                </div>
-                <div className="mt-2 text-zinc-800">
-                  {word.example || "未设置"}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-zinc-500">暂无详情</div>
-        )}
-      </section>
-    </div>
+      </PageShellContent>
+    </PageShell>
   );
 }
 

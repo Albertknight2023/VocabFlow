@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { toast } from "sonner";
-import {
-  getLearningCardsApi,
-  recordProgressApi,
-  spellingCheckApi,
-} from "../api/learning";
+import { toastSuccess, toastError, toastWarning } from "../lib/toast";
+import { getLearningCardsApi, recordProgressApi, spellingCheckApi } from "../api/learning";
+import { incrementLearned } from "../stores/dailyProgress";
 import { Button } from "../components/ui/Button";
+import { PageShell, PageShellHeader, PageShellContent } from "../components/ui/PageShell";
+import { WordCard } from "../components/WordCard";
+import { BodySm } from "../components/ui/Typography";
 
 interface Word {
   id: number;
@@ -25,7 +25,9 @@ function SpellingView() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<string>("");
+  const [shaking, setShaking] = useState(false);
+  const shakeTimer = useRef<ReturnType<typeof setTimeout>>();
+  const advanceTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const current = useMemo(() => words[idx], [words, idx]);
 
@@ -33,9 +35,16 @@ function SpellingView() {
     if (!id) return;
     getLearningCardsApi(id)
       .then((res) => setWords(res.data))
-      .catch((err) => toast.error(err.response?.data?.detail || "加载失败"))
+      .catch((err) => toastError(err.response?.data?.detail || "加载失败"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(shakeTimer.current);
+      clearTimeout(advanceTimer.current);
+    };
+  }, []);
 
   const check = async () => {
     if (!current || !input.trim()) return;
@@ -43,24 +52,32 @@ function SpellingView() {
     try {
       const { data } = await spellingCheckApi(current.id, input);
       try {
-        await recordProgressApi(
-          current.id,
-          data.correct ? "mastered" : "reviewing",
-          data.correct,
-        );
+        await recordProgressApi(current.id, data.correct ? "mastered" : "reviewing", data.correct);
       } catch {
         if (import.meta.env.DEV) {
-          toast.warning("进度保存失败（后端接口异常），但本次拼写结果已给出");
+          toastWarning("进度保存失败（后端接口异常），但本次拼写结果已给出");
         }
       }
-      setResult(data.correct ? "正确" : `错误，正确拼写：${data.expected}`);
+
       if (data.correct) {
-        toast.success("拼写正确");
+        incrementLearned(id);
+        advanceTimer.current = setTimeout(() => {
+          setInput("");
+          if (idx < words.length - 1) {
+            setIdx(idx + 1);
+          } else {
+            navigate("/");
+          }
+        }, 500);
       } else {
-        toast.error("拼写错误");
+        setShaking(true);
+        shakeTimer.current = setTimeout(() => {
+          setShaking(false);
+          setInput("");
+        }, 500);
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "检查失败");
+      toastError(err.response?.data?.detail || "检查失败");
     } finally {
       setChecking(false);
     }
@@ -70,54 +87,70 @@ function SpellingView() {
     if (idx < words.length - 1) {
       setIdx(idx + 1);
       setInput("");
-      setResult("");
       return;
     }
-    toast.success("本轮拼写完成");
-    navigate("/wordbooks");
+    toastSuccess("学习完成！");
+    navigate("/");
   };
 
-  if (loading) return <div className="py-10 text-center">加载中...</div>;
-  if (!words.length)
-    return <div className="py-10 text-center">该单词本暂无单词</div>;
+  const prev = () => {
+    if (idx <= 0) return;
+    setIdx(idx - 1);
+    setInput("");
+  };
+
+  if (loading) {
+    return (
+      <PageShell>
+        <PageShellContent className="flex items-center justify-center">
+          <BodySm>加载中...</BodySm>
+        </PageShellContent>
+      </PageShell>
+    );
+  }
+
+  if (!words.length) {
+    return (
+      <PageShell>
+        <PageShellHeader title="拼写练习" backTo="/" />
+        <PageShellContent className="flex items-center justify-center">
+          <BodySm>该单词本暂无单词</BodySm>
+        </PageShellContent>
+      </PageShell>
+    );
+  }
 
   return (
-    <div className="space-y-6 py-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">拼写练习</h2>
-        <Button onClick={() => navigate("/wordbooks")}>返回单词本</Button>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
-        <div className="text-sm text-gray-500">
-          进度：{idx + 1} / {words.length}
-        </div>
-        <div>
-          <div className="text-sm text-gray-500">根据中文释义拼写单词：</div>
-          <div className="mt-1 text-2xl font-bold">{current.meaning}</div>
-          {current.phonetic ? (
-            <div className="text-sm text-gray-500">{current.phonetic}</div>
-          ) : null}
-        </div>
-
-        <input
-          className="w-full rounded-lg border border-gray-300 px-4 py-2"
-          placeholder="输入英文单词"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && check()}
-        />
-
-        {result ? <div className="text-sm font-medium">{result}</div> : null}
-
-        <div className="flex gap-2">
-          <Button onClick={check} disabled={checking}>
-            {checking ? "检查中..." : "检查"}
+    <PageShell>
+      <PageShellHeader
+        title="拼写练习"
+        subtitle={`进度：${idx + 1} / ${words.length}`}
+        backTo="/"
+        actions={
+          <Button variant="outline" size="sm" onClick={() => navigate("/")}>
+            返回单词本
           </Button>
-          <Button onClick={next}>下一个</Button>
+        }
+      />
+
+      <PageShellContent className="flex items-center justify-center">
+        <div className="mx-auto">
+          <WordCard
+            mode="spelling"
+            meaning={current.meaning}
+            input={input}
+            onInputChange={setInput}
+            onCheck={check}
+            onPrev={prev}
+            onNext={next}
+            checking={checking}
+            hasPrev={idx > 0}
+            hasNext={true}
+            shaking={shaking}
+          />
         </div>
-      </div>
-    </div>
+      </PageShellContent>
+    </PageShell>
   );
 }
 

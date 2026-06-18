@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { PenLine, Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Pencil, Trash2, BookOpen } from "lucide-react";
+import { TextSwapButton } from "../components/ui/TextSwapButton";
+import { StatsCard } from "../components/ui/StatsCard";
+import { toastSuccess, toastError } from "../lib/toast";
 import {
+  createWordbookApi,
   deleteWordbookApi,
   getWordbooksApi,
   unsubscribeWordbookApi,
@@ -10,7 +13,10 @@ import {
 } from "../api/wordbooks";
 import { getWordsByWordbookApi } from "../api/words";
 import { Button } from "../components/ui/Button";
-import { getWordbookColor } from "../utils/wordbook-colors";
+import { Display, H2, BodySm, Caption } from "../components/ui/Typography";
+import { BurstWordbookCard } from "../components/BurstWordbookCard";
+import { Alert } from "../components/ui/Alert";
+import { getDailyProgress } from "../stores/dailyProgress";
 
 interface Wordbook {
   id: number;
@@ -21,6 +27,14 @@ interface Wordbook {
   owner_id?: number | null;
 }
 
+function getErrorDetail(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = error as { response?: { data?: { detail?: string } } };
+    return response.response?.data?.detail || fallback;
+  }
+  return fallback;
+}
+
 function DashboardView() {
   const navigate = useNavigate();
   const [wordbooks, setWordbooks] = useState<Wordbook[]>([]);
@@ -28,8 +42,24 @@ function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
-  const [renameBook, setRenameBook] = useState<Wordbook | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [editBook, setEditBook] = useState<Wordbook | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Wordbook | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createCategory, setCreateCategory] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
+  const location = useLocation();
+  const [daily, setDaily] = useState(() =>
+    getDailyProgress(selectedBookId ?? 0),
+  );
+
+  useEffect(() => {
+    setDaily(getDailyProgress(selectedBookId ?? 0));
+  }, [location.pathname, selectedBookId]);
   const currentUserId = useMemo(() => {
     try {
       const raw = localStorage.getItem("user");
@@ -45,8 +75,12 @@ function DashboardView() {
 
     const wordsEntries = await Promise.all(
       data.map(async (book: Wordbook) => {
-        const wordsRes = await getWordsByWordbookApi(book.id);
-        return [book.id, wordsRes.data.length] as const;
+        try {
+          const wordsRes = await getWordsByWordbookApi(book.id);
+          return [book.id, wordsRes.data.length] as const;
+        } catch {
+          return [book.id, 0] as const;
+        }
       }),
     );
     setWordCounts(Object.fromEntries(wordsEntries));
@@ -54,7 +88,7 @@ function DashboardView() {
 
   useEffect(() => {
     loadDashboard()
-      .catch(() => toast.error("加载首页数据失败"))
+      .catch(() => toastError("加载首页数据失败"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -70,7 +104,7 @@ function DashboardView() {
 
     const savedId = Number(window.localStorage.getItem("selected-wordbook-id"));
     const savedBook = visibleBooks.find((book) => book.id === savedId);
-    const myBook = visibleBooks.find((book) => book.name === "我的单词本");
+    const myBook = visibleBooks.find((book) => book.name === "My Wordbook");
     const fallbackBook = myBook || visibleBooks[0];
 
     if (savedBook) {
@@ -100,117 +134,154 @@ function DashboardView() {
     return wordCounts[selectedBook.id] ?? 0;
   }, [selectedBook, wordCounts]);
 
-  const startRename = (book: Wordbook) => {
-    setRenameBook(book);
-    setRenameValue(book.name);
+  const openEdit = (book: Wordbook) => {
+    setEditBook(book);
+    setEditName(book.name);
+    setEditCategory(book.category || "");
+    setEditDescription(book.description || "");
   };
 
-  const submitRename = async () => {
-    if (!renameBook || !renameValue.trim()) return;
+  const submitEdit = async () => {
+    if (!editBook || !editName.trim()) return;
     try {
-      await updateWordbookApi(renameBook.id, { name: renameValue.trim() });
-      toast.success("单词本名称已更新");
-      setRenameBook(null);
+      await updateWordbookApi(editBook.id, {
+        name: editName.trim(),
+        category: editCategory.trim() || undefined,
+        description: editDescription.trim() || undefined,
+      });
+      toastSuccess("Wordbook updated");
+      setEditBook(null);
       await loadDashboard();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || "更新失败");
+    } catch (error: unknown) {
+      toastError(getErrorDetail(error, "更新失败"));
     }
   };
 
-  const deleteBook = async (book: Wordbook) => {
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteWordbookApi(book.id);
-      toast.success("单词本已删除");
+      if (isOwnedBook(deleteTarget)) {
+        await deleteWordbookApi(deleteTarget.id);
+      } else {
+        await unsubscribeWordbookApi(deleteTarget.id);
+      }
+      toastSuccess("Deleted");
+      setDeleteTarget(null);
       await loadDashboard();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || "删除失败");
+    } catch (error: unknown) {
+      toastError(getErrorDetail(error, "Delete failed"));
     }
   };
 
-  const removeImportedBook = async (book: Wordbook) => {
+  const submitCreate = async () => {
+    if (!createName.trim()) return;
+    setCreateLoading(true);
     try {
-      await unsubscribeWordbookApi(book.id);
-      toast.success(`已从我的单词本移除 ${book.name}`);
+      await createWordbookApi({
+        name: createName,
+        description: createDescription,
+        category: createCategory,
+      });
+      toastSuccess("Wordbook created");
+      setCreateOpen(false);
+      setCreateName("");
+      setCreateCategory("");
+      setCreateDescription("");
       await loadDashboard();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || "移除失败");
+    } catch (error: unknown) {
+      toastError(getErrorDetail(error, "Create failed"));
+    } finally {
+      setCreateLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-[calc(100dvh-7.5rem)] max-h-[calc(100dvh-7.5rem)] flex-col gap-5 overflow-hidden py-2">
-      <section className="rounded-2xl border border-zinc-200 bg-white/95 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-sm text-zinc-500">今日未打卡</div>
-            <h1 className="mt-1 text-4xl font-semibold tracking-tight text-zinc-900">
-              我的单词本
-            </h1>
-          </div>
-          <Button size="sm" onClick={() => setSwitcherOpen(true)}>
-            切换词书
+    <div className="flex flex-col h-full gap-4 p-page pb-6 overflow-hidden max-w-6xl mx-auto w-full">
+      {/* ── 顶部横幅 ── */}
+      <section className="flex-none rounded-card border border-border bg-surface p-4">
+        <div className="mb-4">
+          {daily.learned + daily.reviewed > 0 ? (
+            <Alert variant="success">Checked in today — keep it up!</Alert>
+          ) : (
+            <Alert variant="warning">
+              Not checked in today — start learning!
+            </Alert>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between mb-4">
+          <Display className="!text-display">My Wordbooks</Display>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSwitcherOpen(true)}
+          >
+            Switch
           </Button>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-xs tracking-[0.24em] text-zinc-400">
-                当前词书
-              </div>
-              <div className="mt-1 text-xl font-semibold text-zinc-900">
-                {selectedBook?.name || "我的单词本"}
-              </div>
-            </div>
-            <div className="text-sm text-zinc-500">
-              {loading ? "..." : `${selectedBookWords} 词`}
-            </div>
+        {/* 今日统计 + 操作按钮 — 同行：卡片 2/3，按钮 1/3 */}
+        <div className="flex items-end justify-between">
+          <div className="grid grid-cols-2 gap-3 max-w-lg flex-1">
+            <StatsCard
+              value={daily.learned}
+              label="Learned today"
+              bg="#3b82f6"
+              shadowColor="#60a5fa"
+              icon={<BookOpen className="size-8 text-white" />}
+            />
+            <StatsCard
+              value={daily.reviewed}
+              label="Reviewed today"
+              bg="rgb(41,49,79)"
+              shadowColor="rgb(244,67,54)"
+              icon={<Pencil className="size-8 text-white" />}
+            />
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
+          <div className="flex gap-2 flex-shrink-0">
+            <TextSwapButton
+              topText="Learn"
+              bottomText="Spell"
               onClick={() =>
                 selectedBook && navigate(`/spelling/${selectedBook.id}`)
               }
-              className="rounded-full bg-[#ff4d4f] px-6 py-3 text-lg font-semibold text-white transition hover:brightness-95"
               disabled={!selectedBook}
-            >
-              学习
-            </button>
-            <button
-              type="button"
+            />
+            <TextSwapButton
+              topText="Review"
+              bottomText="Test"
               onClick={() =>
                 selectedBook && navigate(`/review/${selectedBook.id}`)
               }
-              className="rounded-full bg-[#2f56e8] px-6 py-3 text-lg font-semibold text-white transition hover:brightness-95"
               disabled={!selectedBook}
-            >
-              复习
-            </button>
+            />
           </div>
         </div>
       </section>
 
-      {switcherOpen ? (
+      {/* ── 切换词书弹窗 ── */}
+      {switcherOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-modal border border-border bg-surface shadow-modal p-5 animate-scale-in">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-2xl font-semibold tracking-tight text-zinc-900">
-                  切换词书
-                </h3>
-                <p className="mt-1 text-sm text-zinc-500">
-                  选择一个单词本，进入对应的单词列表。
-                </p>
+                <H2>Switch Wordbook</H2>
+                <BodySm className="mt-1">
+                  Select a wordbook to browse its words.
+                </BodySm>
               </div>
-              <Button size="sm" onClick={() => setSwitcherOpen(false)}>
-                关闭
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSwitcherOpen(false)}
+              >
+                Close
               </Button>
             </div>
 
             <div className="mt-5 grid max-h-[60vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-              {visibleBooks.map((book: Wordbook) => (
+              {visibleBooks.map((book) => (
                 <button
                   key={book.id}
                   type="button"
@@ -222,191 +293,234 @@ function DashboardView() {
                     );
                     setSwitcherOpen(false);
                   }}
-                  className={`rounded-2xl border p-4 text-left transition hover:border-zinc-300 hover:bg-white ${
+                  className={`rounded-card border p-4 text-left transition-all hover:border-primary-300 ${
                     selectedBookId === book.id
-                      ? "border-[#2f56e8] bg-white shadow-sm"
-                      : "border-zinc-200 bg-zinc-50"
+                      ? "border-primary-400 bg-primary-50/50 shadow-card"
+                      : "border-border bg-surface hover:bg-elevated"
                   }`}
                 >
-                  <div className="text-lg font-semibold text-zinc-900">
+                  <p className="text-body font-semibold text-foreground">
                     {book.name}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-500">
+                  </p>
+                  <Caption className="mt-1">
                     {wordCounts[book.id] ?? 0} 词
-                  </div>
-                  {selectedBookId === book.id ? (
-                    <div className="mt-2 text-xs font-medium text-[#2f56e8]">
-                      当前选中
-                    </div>
-                  ) : null}
+                  </Caption>
+                  {selectedBookId === book.id && (
+                    <p className="mt-2 text-caption font-medium text-primary-500">
+                      Selected
+                    </p>
+                  )}
                 </button>
               ))}
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
-      <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-200 bg-white/95 p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            单词本
-          </h2>
+      {/* ── 单词库卡片区 ── */}
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-border bg-surface p-3">
+        <div className="mb-3 flex shrink-0 items-center justify-between">
+          <H2>Library</H2>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+            {/* 添加按钮 */}
             <button
               type="button"
-              onClick={() => navigate("/wordbooks")}
-              className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500 transition hover:bg-zinc-100"
+              onClick={() => setCreateOpen(true)}
+              className="flex aspect-[3/4] flex-col items-center justify-center rounded-card border-2 border-dashed border-border text-foreground-muted transition-all hover:border-primary-300 hover:text-primary-500 active:scale-[0.97]"
             >
-              <div className="text-3xl">+</div>
-              <div className="mt-2 text-sm">添加单词本</div>
+              <span className="text-display font-light">+</span>
+              <Caption className="mt-1">Add</Caption>
             </button>
 
+            {/* 单词本卡片 */}
             {visibleBooks.map((book) => {
-              const color = getWordbookColor({
-                name: book.name,
-                category: book.category,
-                is_system: book.is_system,
-                owner_id: book.owner_id,
-                currentUserId,
-              });
-              const IconComponent = color.icon;
+              const owned = isOwnedBook(book);
               return (
-                <div key={book.id} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/wordbooks/${book.id}`)}
-                    className={`relative aspect-[3/4] w-full overflow-hidden rounded-2xl ${color.borderColor} border-[3px] ${color.solidBg} p-4 text-left ${color.textColor} shadow-lg transition-[transform,box-shadow,filter] hover:-translate-y-1 hover:shadow-xl hover:saturate-150 hover:brightness-95`}
-                  >
-                    <div className="absolute inset-0 bg-white/10 backdrop-blur-[2px]"></div>
-
-                    <div className="relative z-10 h-full flex flex-col">
-                      <div className="flex-shrink-0">
-                        <h3 className="text-2xl font-black leading-tight tracking-tight line-clamp-2 sm:text-3xl">
-                          {book.name}
-                        </h3>
-                      </div>
-
-                      <div className="flex-1"></div>
-
-                      <div className="flex-shrink-0 flex items-end justify-between">
-                        <div className="ml-auto text-right">
-                          <div
-                            className={`text-lg font-bold ${color.textColor}`}
-                          >
-                            {wordCounts[book.id] ?? 0}词
-                          </div>
-                          {!isOwnedBook(book) ? (
-                            <div
-                              className={`mt-1 text-[11px] ${color.textColor} opacity-80`}
-                            >
-                              已导入
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-
-                    <IconComponent
-                      className={`pointer-events-none absolute -bottom-8 -left-8 h-36 w-36 ${color.iconColor} opacity-85`}
-                    />
-                  </button>
-
-                  <div className="pointer-events-none absolute inset-x-3 top-2 z-30 flex justify-center opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
-                    <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/50 bg-white/85 p-1 shadow-lg backdrop-blur">
-                      {isOwnedBook(book) ? (
-                        <>
-                          <button
-                            type="button"
-                            aria-label="编辑单词本"
-                            title="编辑单词本"
-                            className="rounded-full p-2 text-zinc-800 transition hover:bg-white"
-                            onClick={() => navigate(`/wordbooks/${book.id}`)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="重命名单词本"
-                            title="重命名单词本"
-                            className="rounded-full p-2 text-zinc-800 transition hover:bg-white"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startRename(book);
-                            }}
-                          >
-                            <PenLine className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="删除单词本"
-                            title="删除单词本"
-                            className="rounded-full p-2 text-red-600 transition hover:bg-red-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (
-                                window.confirm(
-                                  `确定删除单词本「${book.name}」吗？`,
-                                )
-                              ) {
-                                deleteBook(book);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          aria-label="从我的单词本移除"
-                          title="从我的单词本移除"
-                          className="rounded-full p-2 text-zinc-800 transition hover:bg-white"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeImportedBook(book);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <BurstWordbookCard
+                  key={book.id}
+                  book={book}
+                  wordCount={wordCounts[book.id] ?? 0}
+                  currentUserId={currentUserId}
+                  badge={owned ? undefined : "Imported"}
+                  onClick={() => navigate(`/wordbooks/${book.id}`)}
+                  actions={[
+                    ...(owned
+                      ? [
+                          {
+                            label: "Edit",
+                            icon: <Pencil className="size-3.5" />,
+                            onClick: () => openEdit(book),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: "Delete",
+                      icon: <Trash2 className="size-3.5" />,
+                      onClick: () => setDeleteTarget(book),
+                      destructive: true,
+                    },
+                  ]}
+                />
               );
             })}
           </div>
         </div>
       </section>
 
-      {renameBook ? (
+      {/* ── 编辑弹窗 ── */}
+      {editBook && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-lg">
-            <h4 className="text-lg font-semibold text-zinc-900">
-              编辑单词本名字
+          <div className="w-full max-w-md rounded-modal border border-border bg-surface p-5 shadow-modal animate-scale-in">
+            <h4 className="text-subheading font-semibold text-foreground">
+              Edit Wordbook
             </h4>
-            <p className="mt-1 text-sm text-zinc-500">修改后会立即生效。</p>
+            <BodySm className="mt-1">修改名称、分类和描述后保存。</BodySm>
 
-            <input
-              className="mt-4 w-full rounded-lg border border-zinc-300 px-3 py-2"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              placeholder="输入新的单词本名称"
-            />
+            <div className="mt-4 space-y-3">
+              <input
+                className="w-full rounded-ui border border-border bg-background px-3 py-2 text-body focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Name"
+              />
+              <input
+                className="w-full rounded-ui border border-border bg-background px-3 py-2 text-body-sm focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
+                placeholder="Category (e.g. CET4)"
+              />
+              <textarea
+                className="w-full rounded-ui border border-border bg-background px-3 py-2 text-body-sm focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Description"
+              />
+            </div>
 
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" onClick={() => setRenameBook(null)}>
-                取消
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-[#ddd] border-0 hover:bg-[#c5c5c5] text-[rgb(27,27,27)]"
+                onClick={() => setEditBook(null)}
+              >
+                Cancel
               </Button>
-              <Button size="sm" onClick={submitRename}>
-                保存
+              <Button size="sm" onClick={submitEdit}>
+                Save
               </Button>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
+
+      {/* ── 删除确认弹窗 ── */}
+      {deleteTarget && (
+        <div
+          className="fixed 
+        inset-0 
+        z-50 flex 
+        items-center 
+        justify-center
+         bg-black/35 p-4"
+        >
+          <div
+            className="w-[380px] rounded-[20px] bg-white flex flex-col gap-2 
+                      px-6 py-10 
+          relative shadow-[20px_20px_30px_rgba(0,0,0,0.068)]"
+          >
+            {/* 内容 */}
+            <div className="w-full flex flex-col gap-[5px] mb-4">
+              <p className="text-[20px] font-bold text-[rgb(27,27,27)]">
+                Delete this wordbook?
+              </p>
+              <p className="font-thin text-[rgb(102,102,102)] text-body-sm">
+                This action cannot be undone. This will delete "
+                {deleteTarget.name}" and all its words.
+              </p>
+            </div>
+
+            {/* 按钮 */}
+            <div className="w-full flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-lg bg-[#ddd] border-0 hover:bg-[#c5c5c5] text-[rgb(27,27,27)] px-4"
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 rounded-lg px-4"
+                onClick={confirmDelete}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 创建单词本弹窗 ── */}
+      {createOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-md rounded-modal border border-border bg-surface p-5 shadow-modal animate-scale-in">
+            <h4 className="text-subheading font-semibold text-foreground">
+              Create Wordbook
+            </h4>
+            <BodySm className="mt-1">
+              Create a new wordbook to start learning.
+            </BodySm>
+
+            <div className="mt-4 space-y-3">
+              <input
+                className="w-full rounded-ui border border-border bg-background px-3 py-2 text-body focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                placeholder="Name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+              />
+              <input
+                className="w-full rounded-ui border border-border bg-background px-3 py-2 text-body-sm focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                placeholder="Category (e.g. CET4)"
+                value={createCategory}
+                onChange={(e) => setCreateCategory(e.target.value)}
+              />
+              <textarea
+                className="w-full rounded-ui border border-border bg-background px-3 py-2 text-body-sm focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                rows={3}
+                placeholder="Description"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+              />
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-[#ddd] border-0 hover:bg-[#c5c5c5] text-[rgb(27,27,27)]"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setCreateName("");
+                  setCreateCategory("");
+                  setCreateDescription("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" onClick={submitCreate} loading={createLoading}>
+                Create
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

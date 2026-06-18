@@ -70,7 +70,7 @@ function LoginView() {
         </div>
 
         <div className="flex items-center justify-center">
-          <div className="w-full max-w-md space-y-6 rounded-2xl border border-gray-200 bg-white/90 p-8 shadow-xl backdrop-blur">
+          <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-surface/90 p-8 shadow-xl backdrop-blur dark:bg-surface">
             <div className="space-y-2">
               <h1 className="text-4xl font-extrabold">欢迎回来</h1>
               <p className="text-gray-500">使用你的账号登录系统</p>

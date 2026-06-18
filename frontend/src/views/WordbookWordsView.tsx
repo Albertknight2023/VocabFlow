@@ -1,44 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { toast } from "sonner";
+import { toastSuccess, toastError } from "../lib/toast";
+import { ArrowUpDown, Check } from "lucide-react";
 import { getWordbookApi } from "../api/wordbooks";
-import {
-  createWordApi,
-  deleteWordApi,
-  previewWordApi,
-  getWordsByWordbookApi,
-} from "../api/words";
+import { createWordApi, deleteWordApi, previewWordApi, getWordsByWordbookApi } from "../api/words";
 import { Button } from "../components/ui/Button";
-
-interface Wordbook {
-  id: number;
-  name: string;
-  description?: string;
-  category?: string;
-  is_system: boolean;
-}
+import { PageShell, PageShellHeader, PageShellContent } from "../components/ui/PageShell";
+import { Card, CardBody } from "../components/ui/Card";
+import { H2, H3, Body, BodySm, H4 } from "../components/ui/Typography";
 
 interface Word {
-  id: number;
-  text: string;
-  meaning: string;
-  part_of_speech?: string;
+  id: number; text: string; meaning: string; part_of_speech?: string;
 }
 
 interface WordPreview {
-  text: string;
-  meaning: string;
-  part_of_speech?: string;
-  phonetic?: string;
-  english_definition: string;
-  example?: string;
+  text: string; meaning: string; part_of_speech?: string;
+  phonetic?: string; english_definition: string; example?: string;
 }
+
+type SortMode = "az" | "newest" | "oldest";
+
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+  { value: "az", label: "A – Z" },
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+];
 
 function WordbookWordsView() {
   const { wordbookId } = useParams();
   const parsedId = Number(wordbookId);
 
-  const [book, setBook] = useState<Wordbook | null>(null);
+  const [bookName, setBookName] = useState("");
   const [words, setWords] = useState<Word[]>([]);
   const [loading, setLoading] = useState(true);
   const [wordText, setWordText] = useState("");
@@ -47,52 +39,67 @@ function WordbookWordsView() {
   const [addingWord, setAddingWord] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [previewData, setPreviewData] = useState<WordPreview | null>(null);
-
-  const goHome = () => {
-    window.location.href = "/";
-  };
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!parsedId) return;
-
     const load = async () => {
       try {
         const [bookRes, wordsRes] = await Promise.all([
-          getWordbookApi(parsedId),
-          getWordsByWordbookApi(parsedId),
+          getWordbookApi(parsedId), getWordsByWordbookApi(parsedId),
         ]);
-        setBook(bookRes.data);
+        setBookName(bookRes.data.name);
         setWords(wordsRes.data);
-      } catch {
-        toast.error("加载单词本失败");
-      } finally {
-        setLoading(false);
-      }
+      } catch { toastError("Failed to load"); }
+      finally { setLoading(false); }
     };
-
     load();
   }, [parsedId]);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
+        setSortOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const sortedWords = useMemo(() => {
+    const sorted = [...words];
+    switch (sortMode) {
+      case "az":
+        sorted.sort((a, b) => a.text.toLowerCase().localeCompare(b.text.toLowerCase()));
+        break;
+      case "newest":
+        sorted.sort((a, b) => b.id - a.id);
+        break;
+      case "oldest":
+        sorted.sort((a, b) => a.id - b.id);
+        break;
+    }
+    return sorted;
+  }, [words, sortMode]);
 
   const reloadWords = async () => {
     const { data } = await getWordsByWordbookApi(parsedId);
     setWords(data);
   };
 
+  // ── word actions ──
   const submitPreview = async () => {
     if (!wordText.trim()) return;
-    setPreviewLoading(true);
-    setPreviewError("");
+    setPreviewLoading(true); setPreviewError("");
     try {
       const { data } = await previewWordApi(wordText);
-      setPreviewData(data);
-      setPreviewOpen(true);
+      setPreviewData(data); setPreviewOpen(true);
     } catch (err: any) {
-      const detail = err.response?.data?.detail || "预览失败";
-      setPreviewError(detail);
-      toast.error(detail);
-    } finally {
-      setPreviewLoading(false);
-    }
+      const detail = err.response?.data?.detail || "Preview failed";
+      setPreviewError(detail); toastError(detail);
+    } finally { setPreviewLoading(false); }
   };
 
   const confirmAddWord = async () => {
@@ -100,179 +107,138 @@ function WordbookWordsView() {
     setAddingWord(true);
     try {
       const { data } = await createWordApi(parsedId, {
-        text: previewData.text,
-        part_of_speech: previewData.part_of_speech,
-        phonetic: previewData.phonetic,
-        meaning: previewData.meaning,
-        english_definition:
-          previewData.english_definition || previewData.example,
+        text: previewData.text, part_of_speech: previewData.part_of_speech,
+        phonetic: previewData.phonetic, meaning: previewData.meaning,
+        english_definition: previewData.english_definition || previewData.example,
       });
-      setWords((prev) => {
-        if (prev.some((item) => item.id === data.id)) {
-          return prev;
-        }
-        return [data, ...prev];
-      });
-      setWordText("");
-      setPreviewOpen(false);
-      setPreviewData(null);
-      setPreviewError("");
-      toast.success("单词已添加");
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || "添加失败");
-    } finally {
-      setAddingWord(false);
-    }
+      setWords((prev) => (prev.some((item) => item.id === data.id) ? prev : [data, ...prev]));
+      setWordText(""); setPreviewOpen(false); setPreviewData(null); setPreviewError("");
+      toastSuccess("Word added");
+    } catch (err: any) { toastError(err.response?.data?.detail || "Failed"); }
+    finally { setAddingWord(false); }
   };
 
   const removeWord = async (wordId: number) => {
-    try {
-      await deleteWordApi(wordId);
-      toast.success("单词已删除");
-      await reloadWords();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || "删除失败");
-    }
+    try { await deleteWordApi(wordId); toastSuccess("Word deleted"); await reloadWords(); }
+    catch (err: any) { toastError(err.response?.data?.detail || "Failed"); }
   };
 
   if (!parsedId) {
-    return <div className="text-sm text-zinc-500">单词本参数无效</div>;
+    return <PageShell><PageShellContent><BodySm>Invalid wordbook</BodySm></PageShellContent></PageShell>;
   }
 
   return (
-    <div className="flex min-h-[calc(100dvh-7.5rem)] max-h-[calc(100dvh-7.5rem)] flex-col gap-5 overflow-hidden py-2">
-      <section className="rounded-2xl border border-zinc-200 bg-white/95 p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl">
-              {book?.name || "单词本"}
-            </h1>
-            <p className="mt-2 text-sm text-zinc-500">
-              {loading ? "加载中..." : `${words.length} 个单词`}
-              {book?.description ? ` · ${book.description}` : ""}
-            </p>
-          </div>
-          <Button size="sm" onClick={goHome}>
-            返回主页
-          </Button>
-        </div>
-      </section>
+    <PageShell>
+      <PageShellHeader
+        title={bookName || "Wordbook"}
+        subtitle={`${words.length} words`}
+        backTo="/"
+      />
 
-      <section className="rounded-2xl border border-zinc-200 bg-white/95 p-5 shadow-sm">
-        <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-          添加单词
-        </h2>
-        <div className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]">
-          <input
-            className="h-10 rounded-lg border border-zinc-300 px-3"
-            placeholder="只输入英文单词，例如 abandon"
-            value={wordText}
-            onChange={(e) => setWordText(e.target.value)}
-          />
-          <Button
-            className="h-10 px-5 text-sm"
-            onClick={submitPreview}
-            disabled={previewLoading}
-          >
-            {previewLoading ? "搜索中..." : "搜索"}
-          </Button>
-        </div>
-        {previewError ? (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {previewError}
-          </div>
-        ) : null}
-      </section>
+      <PageShellContent>
+        <div className="max-w-4xl mx-auto w-full space-y-6">
 
-      <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-200 bg-white/95 p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            当前词书单词
-          </h2>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-          {!loading && words.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500">
-              这个单词本还没有单词，先添加一个。
-            </div>
-          ) : null}
-
-          {words.map((word) => (
-            <div
-              key={word.id}
-              className="flex items-start justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3"
-            >
-              <div>
-                <div className="text-lg font-semibold text-zinc-900">
-                  {word.text}
+          {/* Add word — stays at top */}
+          <Card className="sticky top-0 z-10">
+            <CardBody>
+              <H2>Add Word</H2>
+              <div className="mt-4 flex gap-2">
+                <input
+                  className="flex-1 h-10 rounded-ui border border-border bg-background px-3 text-body placeholder:text-foreground-muted focus:border-primary-400/60 focus:ring-2 focus:ring-primary-400/20 outline-none transition"
+                  placeholder="Enter an English word, e.g. abandon"
+                  value={wordText}
+                  onChange={(e) => setWordText(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitPreview()}
+                />
+                <Button onClick={submitPreview} loading={previewLoading}>
+                  Search
+                </Button>
+              </div>
+              {previewError && (
+                <div className="mt-3 rounded-ui border border-destructive-200 bg-destructive-50 px-3 py-2 text-body-sm text-destructive-600">
+                  {previewError}
                 </div>
-                <div className="mt-2 text-sm leading-6 text-zinc-700">
-                  {word.meaning}
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Word list */}
+          <Card>
+            <CardBody>
+              <div className="flex items-center justify-between mb-4 shrink-0">
+                <H2>Words</H2>
+
+                {/* Sort dropdown */}
+                <div className="relative" ref={sortRef}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={<ArrowUpDown className="size-3.5" />}
+                    onClick={() => setSortOpen((v) => !v)}
+                  >
+                    {SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? "Sort"}
+                  </Button>
+                  {sortOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-40 rounded-ui border border-border bg-surface shadow-modal py-1 z-30">
+                      {SORT_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-body-sm text-foreground-secondary hover:bg-elevated hover:text-foreground transition"
+                          onClick={() => { setSortMode(opt.value); setSortOpen(false); }}
+                        >
+                          <Check className={`size-3.5 ${sortMode === opt.value ? "opacity-100" : "opacity-0"}`} />
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
-              <Button size="sm" onClick={() => removeWord(word.id)}>
-                删除
-              </Button>
-            </div>
-          ))}
-        </div>
-      </section>
 
-      {previewOpen && previewData ? (
+              {!loading && sortedWords.length === 0 ? (
+                <div className="rounded-card border border-dashed border-border p-6 text-center">
+                  <BodySm>No words yet. Add one above.</BodySm>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sortedWords.map((word) => (
+                    <div key={word.id} className="flex items-start justify-between rounded-ui border border-border bg-elevated px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-body font-semibold text-foreground truncate">{word.text}</p>
+                        <p className="mt-1 text-body-sm text-foreground-secondary">{word.meaning}</p>
+                      </div>
+                      <Button variant="ghost" size="sm" className="shrink-0 ml-2" onClick={() => removeWord(word.id)}>
+                        Delete
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        </div>
+      </PageShellContent>
+
+      {/* ── Preview modal ── */}
+      {previewOpen && previewData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
-            <h4 className="text-lg font-semibold">确认联网补全结果</h4>
-            <p className="mt-1 text-sm text-gray-600">
-              确认后将把以下信息添加到当前词书。
-            </p>
-
-            <div className="mt-4 space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-gray-400">
-                  单词
-                </div>
-                <div className="mt-1 text-xl font-semibold text-gray-900">
-                  {previewData.text}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-gray-400">
-                  中文翻译
-                </div>
-                <div className="mt-1 text-gray-800">{previewData.meaning}</div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-gray-400">
-                  英文释义
-                </div>
-                <div className="mt-1 text-gray-800">
-                  {previewData.english_definition ||
-                    previewData.example ||
-                    "未找到英文释义"}
-                </div>
-              </div>
+          <div className="w-full max-w-2xl rounded-modal border border-border bg-surface shadow-modal p-5 animate-scale-in">
+            <H3>Confirm</H3>
+            <BodySm className="mt-1">Preview will be added to the current wordbook.</BodySm>
+            <div className="mt-4 space-y-3 rounded-card border border-border bg-elevated p-4">
+              <div><H4>Word</H4><p className="mt-1 text-display text-foreground">{previewData.text}</p></div>
+              <div><H4>Translation</H4><Body className="mt-1 !text-foreground">{previewData.meaning}</Body></div>
+              <div><H4>Definition</H4><Body className="mt-1 !text-foreground">{previewData.english_definition || previewData.example || "N/A"}</Body></div>
             </div>
-
             <div className="mt-4 flex justify-end gap-2">
-              <Button
-                size="sm"
-                onClick={() => {
-                  setPreviewOpen(false);
-                  setPreviewData(null);
-                  setPreviewError("");
-                }}
-              >
-                取消
-              </Button>
-              <Button size="sm" onClick={confirmAddWord} disabled={addingWord}>
-                {addingWord ? "添加中..." : "确认添加"}
-              </Button>
+              <Button variant="outline" size="sm" className="bg-[#ddd] border-0 hover:bg-[#c5c5c5] text-[rgb(27,27,27)]" onClick={() => { setPreviewOpen(false); setPreviewData(null); setPreviewError(""); }}>Cancel</Button>
+              <Button size="sm" onClick={confirmAddWord} loading={addingWord}>Confirm</Button>
             </div>
           </div>
         </div>
-      ) : null}
-    </div>
+      )}
+    </PageShell>
   );
 }
 

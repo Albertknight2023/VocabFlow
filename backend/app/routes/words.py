@@ -67,20 +67,6 @@ def list_words(
     current_user: User = Depends(get_current_user),
 ):
     wordbook = ensure_accessible_wordbook(wordbook_id, db, current_user)
-    seen: set[str] = set()
-    duplicates: list[Word] = []
-    for word in wordbook.words:
-        key = word.text.strip().lower()
-        if key in seen:
-            duplicates.append(word)
-        else:
-            seen.add(key)
-
-    if duplicates:
-        for word in duplicates:
-            wordbook.words.remove(word)
-        db.commit()
-
     return wordbook.words
 
 
