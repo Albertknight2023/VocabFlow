@@ -46,7 +46,7 @@ function Navbar() {
               <BookOpen className="h-4 w-4 text-white" />
             </div>
             <span className="hidden text-body-sm font-semibold text-foreground sm:block">
-              VocabMaster
+              VocabFlow
             </span>
           </button>
 
