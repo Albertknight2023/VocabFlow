@@ -1,54 +1,32 @@
-# React + TypeScript + Vite
+# VocabFlow Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite 前端，提供词书看板、词书发现与订阅、在线查词预览、拼写练习、到期复习和账户页面。项目总体介绍、后端启动方式与功能边界见[仓库首页 README](../README.md)。
 
-Currently, two official plugins are available:
+## 本地开发
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+先按仓库首页说明启动 PostgreSQL 与 FastAPI 后端（默认 `http://localhost:8001`），然后在本目录运行：
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```powershell
+npm ci
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+浏览器访问 `http://localhost:5173`。前端默认请求当前主机的 `8001/api`；需要自定义时，可在本地 `.env.local` 中设置 `VITE_API_BASE_URL=http://localhost:8001/api`。
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 主要入口
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+- `src/router/AppRoutes.tsx`：登录保护和页面路由。
+- `src/views/DashboardView.tsx`：词书看板、创建与管理。
+- `src/views/BookshelfView.tsx`：发现和订阅词书。
+- `src/views/WordbookWordsView.tsx`：查词、预览、确认录入和单词列表。
+- `src/views/SpellingView.tsx`、`ReviewView.tsx`：拼写练习和复习。
+- `src/api/`、`src/stores/`：API 请求封装、会话及本地状态。
+
+## 检查
+
+```powershell
+npm run build
+npm run lint
 ```
+
+当前仓库未配置前端自动化测试；以上命令用于构建与静态检查。
